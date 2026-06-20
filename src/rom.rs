@@ -8,11 +8,11 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::process::Command;
 
-const DTS_FILE_NAME: &str = "rvemu.dts";
-const DTB_FILE_NAME: &str = "rvemu.dtb";
+const _DTS_FILE_NAME: &str = "rvemu.dts";
+const _DTB_FILE_NAME: &str = "rvemu.dtb";
 
 /// Create a new dts file. If the file already existed, the old content is destroyed. Otherwise, a new file is created.
-fn create_dts() -> std::io::Result<()> {
+fn _create_dts() -> std::io::Result<()> {
     // TODO: Make this content more flexible depending on the number of cpus.
     // Reference code is https://github.com/riscv/riscv-isa-sim/blob/66b44bfbedda562a32e4a2cd0716afbf731b69cd/riscv/dts.cc#L38-L54
     let content = r#"/dts-v1/;
@@ -104,27 +104,26 @@ fn create_dts() -> std::io::Result<()> {
     };
 };"#;
 
-    let mut dts = File::create(DTS_FILE_NAME)?;
+    let mut dts = File::create(_DTS_FILE_NAME)?;
     dts.write_all(content.as_bytes())?;
     Ok(())
 }
 
 /// Compile a dts file to a dtb file.
-fn compile_dts() -> std::io::Result<()> {
+fn _compile_dts() -> std::io::Result<()> {
     // dtc -I dts -O dtb -o <FILE_NAME>.dtb <FILE_NAME>.dts
     Command::new("dtc")
-        .args(&["-I", "dts", "-O", "dtb", "-o", DTB_FILE_NAME, DTS_FILE_NAME])
+        .args(&["-I", "dts", "-O", "dtb", "-o", _DTB_FILE_NAME, _DTS_FILE_NAME])
         .output()?;
     Ok(())
 }
 
 /// Read a dtb file. First, create a dts file. Second, compile it to a dtb file. Finally, read the dtb file and return the binary content.
-fn dtb() -> std::io::Result<Vec<u8>> {
-    create_dts()?;
-    compile_dts()?;
+fn _dtb() -> std::io::Result<Vec<u8>> {
+    _create_dts()?;
+    //compile_dts()?;
 
-    let mut dtb = Vec::new();
-    File::open(DTB_FILE_NAME)?.read_to_end(&mut dtb)?;
+    let dtb = std::fs::read("rvemu.dtb")?;
 
     Ok(dtb)
 }
@@ -137,20 +136,9 @@ pub struct Rom {
 impl Rom {
     /// Create a new `rom` object.
     pub fn new() -> Self {
-        let mut dtb = match dtb() {
-            Ok(dtb) => dtb,
-            Err(e) => {
-                // TODO: should fail?
-                println!("WARNING: failed to read a device tree binary: {}", e);
-                println!(
-                    "WARNING: maybe need to install dtc commend `apt install device-tree-compiler`"
-                );
-                Vec::new()
-            }
-        };
+        let mut dtb = include_bytes!("../rvemu.dtb").to_vec();
 
-        // TODO: set a reset vector correctly.
-        // 0x20 is the size of a reset vector.
+
         let mut rom = vec![0; 32];
         rom.append(&mut dtb);
         let align = 0x1000;

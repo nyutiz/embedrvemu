@@ -12,3 +12,4 @@ categories = ["command-line-utilities"]
 [dependencies]
 clap = "2.33.3"
 rvemu-core = { package="rvemu", path = "../../" }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }

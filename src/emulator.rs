@@ -20,6 +20,8 @@ impl Emulator {
         }
     }
 
+
+
     /// Reset CPU state.
     pub fn reset(&mut self) {
         self.cpu.reset()
@@ -119,6 +121,7 @@ impl Emulator {
     pub fn start(&mut self) {
         if self.is_debug || self.cpu.is_count {
             self.debug_start();
+            return;
         }
 
         loop {

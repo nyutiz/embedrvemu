@@ -56,6 +56,7 @@ pub struct Uart {
 impl Uart {
     /// Create a new UART object.
     pub fn new() -> Self {
+
         let uart = Arc::new((Mutex::new([0; UART_SIZE as usize]), Condvar::new()));
         let interrupting = Arc::new(AtomicBool::new(false));
         {
@@ -88,6 +89,36 @@ impl Uart {
                 }
             }
         });
+
+        Self { uart, interrupting }
+    }
+
+    pub fn new_headless() -> Self {
+        Self::new_with_stdin(false)
+    }
+
+    fn new_with_stdin(enable: bool) -> Self {
+        let uart = Arc::new((Mutex::new([0; UART_SIZE as usize]), Condvar::new()));
+        let interrupting = Arc::new(AtomicBool::new(false));
+
+        // init LSR...
+        {
+            let (uart_lock, _) = &*uart;
+            let mut u = uart_lock.lock().unwrap();
+            u[(UART_LSR - UART_BASE) as usize] |= UART_LSR_TX;
+        }
+
+        if enable {
+            let mut byte = [0; 1];
+            let _cloned_uart = uart.clone();
+            let _cloned_interrupting = interrupting.clone();
+            thread::spawn(move || loop {
+                match io::stdin().read(&mut byte) {
+                    Ok(_) => { /* ... code existant ... */ }
+                    Err(e) => { println!("input via UART is error: {}", e); }
+                }
+            });
+        }
 
         Self { uart, interrupting }
     }

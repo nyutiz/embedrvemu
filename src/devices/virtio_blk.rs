@@ -247,7 +247,7 @@ impl VirtqDesc {
 /// ```
 #[derive(Debug)]
 struct VirtqAvail {
-    flags: u16,
+    _flags: u16,
     idx: u16,
     ring_start_addr: u64,
 }
@@ -255,7 +255,7 @@ struct VirtqAvail {
 impl VirtqAvail {
     fn new(cpu: &mut Cpu, addr: u64) -> Result<Self, Exception> {
         Ok(Self {
-            flags: cpu.bus.read(addr, HALFWORD)? as u16,
+            _flags: cpu.bus.read(addr, HALFWORD)? as u16,
             idx: cpu.bus.read(addr.wrapping_add(2), HALFWORD)? as u16,
             ring_start_addr: addr.wrapping_add(4),
         })
