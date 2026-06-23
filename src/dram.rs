@@ -29,6 +29,12 @@ impl Dram {
         self.dram.splice(..binary.len(), binary.iter().cloned());
     }
 
+    pub fn initialize_at(&mut self, binary: Vec<u8>, offset: u64) {
+        let start = offset as usize;
+        let end = start + binary.len();
+        self.dram.splice(start..end, binary.iter().cloned());
+    }
+
     /// Load `size`-bit data from the memory.
     pub fn read(&self, addr: u64, size: u8) -> Result<u64, Exception> {
         match size {
@@ -75,6 +81,7 @@ impl Dram {
     }
 
     /// Write 8 bytes to the memory with little endian.
+
     fn write64(&mut self, addr: u64, val: u64) {
         let index = (addr - DRAM_BASE) as usize;
         self.dram[index] = (val & 0xff) as u8;
@@ -102,10 +109,11 @@ impl Dram {
     /// Read 4 bytes from the memory with little endian.
     fn read32(&self, addr: u64) -> u64 {
         let index = (addr - DRAM_BASE) as usize;
-        return (self.dram[index] as u64)
+        let v = (self.dram[index] as u64)
             | ((self.dram[index + 1] as u64) << 8)
             | ((self.dram[index + 2] as u64) << 16)
             | ((self.dram[index + 3] as u64) << 24);
+        v
     }
 
     /// Read 8 bytes from the memory with little endian.

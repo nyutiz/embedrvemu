@@ -22,9 +22,10 @@ const UART_RHR: u64 = UART_BASE + 0;
 /// Transmit holding register (for output bytes).
 const UART_THR: u64 = UART_BASE + 0;
 /// Interrupt enable register.
-const _UART_IER: u64 = UART_BASE + 1;
 /// FIFO control register.
 const _UART_FCR: u64 = UART_BASE + 2;
+
+
 /// Interrupt status register.
 /// ISR BIT-0:
 ///     0 = an interrupt is pending and the ISR contents may be used as a pointer to the appropriate
@@ -46,6 +47,27 @@ const UART_LSR: u64 = UART_BASE + 5;
 const UART_LSR_RX: u8 = 1;
 /// The transmitter (TX).
 const UART_LSR_TX: u8 = 1 << 5;
+
+/// Interrupt enable register.
+const UART_IER: u64 = UART_BASE + 1;
+/// Interrupt identification register (read) / FIFO control register (write, same offset).
+const UART_IIR: u64 = UART_BASE + 2;
+
+/// Bit 1 of IER: Enable Transmitter Holding Register Empty Interrupt.
+const UART_IER_THRI: u8 = 1 << 1;
+/// Bit 0 of IER: Enable Received Data Available Interrupt.
+const UART_IER_RDI: u8 = 1 << 0;
+
+/// IIR encoding (bits 3:1, with bit 0 = 0 meaning "interrupt pending"):
+/// 0x06 = Receiver Line Status
+/// 0x04 = Received Data Available
+/// 0x02 = Transmitter Holding Register Empty
+/// 0x00 = Modem Status
+/// When no interrupt is pending, IIR = 0x01 (bit 0 set).
+const UART_IIR_NONE: u8 = 0x01;
+const UART_IIR_THRE: u8 = 0x02;
+const UART_IIR_RDA: u8 = 0x04;
+
 
 /// The UART, the size of which is 0x100 (2**8).
 pub struct Uart {
@@ -142,6 +164,22 @@ impl Uart {
                 uart[(UART_LSR - UART_BASE) as usize] &= !UART_LSR_RX;
                 Ok(uart[(UART_RHR - UART_BASE) as usize] as u64)
             }
+            UART_IIR => {
+                let ier = uart[(UART_IER - UART_BASE) as usize];
+                let lsr = uart[(UART_LSR - UART_BASE) as usize];
+
+                // Priority order (highest first): RX data available, then THR empty.
+                let iir = if (ier & UART_IER_RDI != 0) && (lsr & UART_LSR_RX != 0) {
+                    UART_IIR_RDA
+                } else if (ier & UART_IER_THRI != 0) && (lsr & UART_LSR_TX != 0) {
+                    UART_IIR_THRE
+                } else {
+                    UART_IIR_NONE
+                };
+
+                // Reading IIR clears a pending THRE interrupt indication on real hardware.
+                Ok(iir as u64)
+            }
             _ => Ok(uart[(index - UART_BASE) as usize] as u64),
         }
     }
@@ -152,22 +190,24 @@ impl Uart {
             return Err(Exception::StoreAMOAccessFault);
         }
 
-        // An OS allows to write a byte to a UART when UART_LSR_TX is 1.
-        // e.g. (xv6):
-        //   // wait for Transmit Holding Empty to be set in LSR.
-        //   while((ReadReg(LSR) & (1 << 5)) == 0)
-        //   ;
-        //   WriteReg(THR, c);
-        //
-        // e.g. (riscv-pk):
-        //   while ((uart16550[UART_REG_LSR << uart16550_reg_shift] & UART_REG_STATUS_TX) == 0);
-        //   uart16550[UART_REG_QUEUE << uart16550_reg_shift] = ch;
         let (uart, _cvar) = &*self.uart;
         let mut uart = uart.lock().expect("failed to get an UART object");
         match index {
             UART_THR => {
                 print!("{}", value as char);
                 io::stdout().flush().expect("failed to flush stdout");
+
+                let ier = uart[(UART_IER - UART_BASE) as usize];
+                if ier & UART_IER_THRI != 0 {
+                    self.interrupting.store(true, Ordering::Release);
+                }
+            }
+            UART_IER => {
+                uart[(index - UART_BASE) as usize] = value;
+                let lsr = uart[(UART_LSR - UART_BASE) as usize];
+                if value & UART_IER_THRI != 0 && lsr & UART_LSR_TX != 0 {
+                    self.interrupting.store(true, Ordering::Release);
+                }
             }
             _ => {
                 uart[(index - UART_BASE) as usize] = value;

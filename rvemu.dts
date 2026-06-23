@@ -7,7 +7,7 @@
     model = "riscv-virtio,qemu";
 
     chosen {
-        bootargs = "root=/dev/vda ro console=ttyS0";
+        bootargs = "console=ttyS0 init=/init";
         stdout-path = "/uart@10000000";
     };
 

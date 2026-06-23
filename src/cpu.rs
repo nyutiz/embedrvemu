@@ -3,6 +3,7 @@
 use std::cmp;
 use std::cmp::PartialEq;
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::fmt;
 use std::num::FpCategory;
 
@@ -238,7 +239,13 @@ pub struct Cpu {
     pub is_count: bool,
     /// Previous instruction. This is for debug.
     pub pre_inst: u64,
+    /// Ring buffer of the last N (pc, inst) pairs executed. Used to pinpoint the exact
+    /// address range of an infinite loop without flooding stderr with millions of lines.
+    pub pc_trace: VecDeque<(u64, u64)>,
 }
+
+/// Capacity of the `pc_trace` ring buffer.
+pub const PC_TRACE_CAPACITY: usize = 64;
 
 impl Cpu {
     /// Create a new `Cpu` object.
@@ -257,6 +264,7 @@ impl Cpu {
             inst_counter: BTreeMap::new(),
             is_count: false,
             pre_inst: 0,
+            pc_trace: VecDeque::with_capacity(PC_TRACE_CAPACITY),
         }
     }
 
@@ -324,6 +332,20 @@ impl Cpu {
         // 3.1.6.1 Privilege and Global Interrupt-Enable Stack in mstatus register
         // "When a hart is executing in privilege mode x, interrupts are globally enabled when
         // xIE=1 and globally disabled when xIE=0."
+
+        //eprintln!(
+        //    "[CPU] check_pending_interrupt mode={:?} mie={:#x} mip={:#x} sie={:#x} sip={:#x}",
+        //    self.mode,
+        //    self.state.read(/* MIE addr */ 0x304),
+        //    self.state.read(/* MIP addr */ 0x344),
+        //    self.state.read(/* SIE addr */ 0x104),
+        //    self.state.read(/* SIP addr */ 0x144),
+        //);
+
+        if self.idle && self.state.read(MIP) != 0 {
+            self.idle = false;
+        }
+
         match self.mode {
             Mode::Machine => {
                 // Check if the MIE bit is enabled.
@@ -534,10 +556,10 @@ impl Cpu {
             pte = pte
                 | (1 << 6)
                 | if access_type == AccessType::Store {
-                    1 << 7
-                } else {
-                    0
-                };
+                1 << 7
+            } else {
+                0
+            };
 
             // TODO: PMA or PMP check.
 
@@ -581,11 +603,8 @@ impl Cpu {
     /// if it is enabled.
     fn read(&mut self, v_addr: u64, size: u8) -> Result<u64, Exception> {
         let previous_mode = self.mode;
-
-        // 3.1.6.3 Memory Privilege in mstatus Register
-        // "When MPRV=1, load and store memory addresses are translated and protected, and
-        // endianness is applied, as though the current privilege mode were set to MPP."
         if self.state.read_mstatus(MSTATUS_MPRV) == 1 {
+            eprintln!("MPRV ACTIVE on read addr={:#x} pc={:#x} enable_paging={}", v_addr, self.pc, self.enable_paging);
             self.mode = match self.state.read_mstatus(MSTATUS_MPP) {
                 0b00 => Mode::User,
                 0b01 => Mode::Supervisor,
@@ -593,14 +612,11 @@ impl Cpu {
                 _ => Mode::Debug,
             };
         }
-
         let p_addr = self.translate(v_addr, AccessType::Load)?;
         let result = self.bus.read(p_addr, size);
-
         if self.state.read_mstatus(MSTATUS_MPRV) == 1 {
             self.mode = previous_mode;
         }
-
         result
     }
 
@@ -670,6 +686,8 @@ impl Cpu {
             return Ok(0);
         }
 
+        let pc_before = self.pc;
+
         // Fetch.
         let inst16 = self.fetch(HALFWORD)?;
         let inst;
@@ -692,6 +710,12 @@ impl Cpu {
             }
         }
         self.pre_inst = inst;
+
+        if self.pc_trace.len() >= PC_TRACE_CAPACITY {
+            self.pc_trace.pop_front();
+        }
+        self.pc_trace.push_back((pc_before, inst));
+
         Ok(inst)
     }
 
@@ -1101,7 +1125,7 @@ impl Cpu {
                             | ((inst << 3) & 0x20) // offset[5]
                             | ((inst >> 7) & 0x18) // offset[4:3]
                             | ((inst >> 2) & 0x6); // offset[2:1]
-                                                   // Sign-extended.
+                        // Sign-extended.
                         offset = match (offset & 0x100) == 0 {
                             true => offset,
                             false => (0xfe00 | offset) as i16 as i64 as u64,
@@ -1123,7 +1147,7 @@ impl Cpu {
                             | ((inst << 3) & 0x20) // offset[5]
                             | ((inst >> 7) & 0x18) // offset[4:3]
                             | ((inst >> 2) & 0x6); // offset[2:1]
-                                                   // Sign-extended.
+                        // Sign-extended.
                         offset = match (offset & 0x100) == 0 {
                             true => offset,
                             false => (0xfe00 | offset) as i16 as i64 as u64,
@@ -3326,6 +3350,14 @@ impl Cpu {
                                 // environment call exception.
                                 match self.mode {
                                     Mode::User => {
+                                        eprintln!(
+                                            "[ECALL][U] pc={:#x} a7={:#x} a0={:#x} a1={:#x} a2={:#x}",
+                                            self.pc,
+                                            self.xregs.read(17), // a7 = syscall number
+                                            self.xregs.read(10), // a0
+                                            self.xregs.read(11), // a1
+                                            self.xregs.read(12), // a2
+                                        );
                                         return Err(Exception::EnvironmentCallFromUMode);
                                     }
                                     Mode::Supervisor => {

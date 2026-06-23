@@ -96,6 +96,7 @@ impl Plic {
 
     /// Sets IRQ bit in `pending`.
     pub fn update_pending(&mut self, irq: u64) {
+        eprintln!("[PLIC] update_pending irq={}", irq);
         let index = irq.wrapping_div(WORD_SIZE);
         self.pending[index as usize] = self.pending[index as usize] | (1 << irq);
 
@@ -112,10 +113,11 @@ impl Plic {
 
     /// Sets IRQ bit in `claim` for context 1.
     fn update_claim(&mut self, irq: u64) {
-        // TODO: Support highest priority to the `claim` register.
-        // claim[1] is claim/complete registers for S-mode (context 1). SCLAIM.
-        if self.is_enable(1, irq) || irq == 0 {
+        let enabled = self.is_enable(1, irq);
+        eprintln!("[PLIC] update_claim irq={} enabled_ctx1={} ", irq, enabled);
+        if enabled || irq == 0 {
             self.claim[1] = irq as u32;
+            eprintln!("[PLIC] claim[1] set to {}", irq);
         }
     }
 

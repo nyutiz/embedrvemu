@@ -2,6 +2,7 @@
 
 use crate::cpu::Cpu;
 use crate::exception::Trap;
+use std::time::Instant;
 
 /// The emulator to hold a CPU.
 pub struct Emulator {
@@ -35,6 +36,10 @@ impl Emulator {
     /// Set binary data to the virtio disk from the emulator console.
     pub fn initialize_disk(&mut self, data: Vec<u8>) {
         self.cpu.bus.initialize_disk(data);
+    }
+
+    pub fn initialize_dram_at(&mut self, data: Vec<u8>, offset: u64) {
+        self.cpu.bus.initialize_dram_at(data, offset);
     }
 
     /// Set the program counter to the CPU field.
@@ -72,11 +77,35 @@ impl Emulator {
 
     /// Start executing the emulator for debug.
     fn debug_start(&mut self) {
-        let mut count = 0;
+        let mut count: u64 = 0;
+        // Dump the pc_trace ring buffer to stderr roughly once per second of wall-clock
+        // time, regardless of how many instructions that represents. This makes it
+        // reliable to capture a snapshot with `Start-Sleep -Seconds N` + `Stop-Process`,
+        // independent of machine speed or how much I/O the emulated code is doing.
+        let mut last_dump = Instant::now();
+        const DUMP_PERIOD_SECS: f64 = 1.0;
+        // Only check the clock every CHECK_MASK instructions to keep the syscall overhead
+        // negligible (clock check is relatively cheap, but not free at hundreds of millions
+        // of iterations per second).
+        const CHECK_MASK: u64 = 0xFFF; // every 4096 instructions
+
         loop {
             count += 1;
             if self.cpu.is_count && count > 50000000 {
                 return;
+            }
+
+            if count & CHECK_MASK == 0 && last_dump.elapsed().as_secs_f64() >= DUMP_PERIOD_SECS {
+                eprintln!(
+                    "--- pc_trace dump (count={}) : dernières {} instructions exécutées ---",
+                    count,
+                    self.cpu.pc_trace.len()
+                );
+                for (pc, inst) in self.cpu.pc_trace.iter() {
+                    eprintln!("  pc={:#x} inst={:#x}", pc, inst);
+                }
+                eprintln!("--- fin du dump ---");
+                last_dump = Instant::now();
             }
 
             // Run a cycle on peripheral devices.

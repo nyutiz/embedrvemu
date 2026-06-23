@@ -77,6 +77,10 @@ impl Bus {
         self.virtio.initialize(data);
     }
 
+    pub fn initialize_dram_at(&mut self, data: Vec<u8>, offset: u64) {
+        self.dram.initialize_at(data, offset);
+    }
+
     /// Load a `size`-bit data from the device that connects to the system bus.
     pub fn read(&mut self, addr: u64, size: u8) -> Result<u64, Exception> {
         match addr {

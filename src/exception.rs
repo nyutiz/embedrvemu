@@ -215,14 +215,14 @@ impl Exception {
 
         match self {
             Exception::InstructionAddressMisaligned | Exception::InstructionAccessFault => {
-                Trap::Fatal
+                Trap::Invisible
             }
             Exception::IllegalInstruction(_) => Trap::Invisible,
             Exception::Breakpoint => Trap::Requested,
             Exception::LoadAddressMisaligned
             | Exception::LoadAccessFault
             | Exception::StoreAMOAddressMisaligned
-            | Exception::StoreAMOAccessFault => Trap::Fatal,
+            | Exception::StoreAMOAccessFault => Trap::Invisible,
             Exception::EnvironmentCallFromUMode
             | Exception::EnvironmentCallFromSMode
             | Exception::EnvironmentCallFromMMode => Trap::Requested,

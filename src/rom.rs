@@ -11,6 +11,9 @@ use std::process::Command;
 const _DTS_FILE_NAME: &str = "rvemu.dts";
 const _DTB_FILE_NAME: &str = "rvemu.dtb";
 
+use std::sync::atomic::{AtomicU32, Ordering};
+static READ_COUNT: AtomicU32 = AtomicU32::new(0);
+
 /// Create a new dts file. If the file already existed, the old content is destroyed. Otherwise, a new file is created.
 fn _create_dts() -> std::io::Result<()> {
     // TODO: Make this content more flexible depending on the number of cpus.
@@ -138,7 +141,6 @@ impl Rom {
     pub fn new() -> Self {
         let mut dtb = include_bytes!("../rvemu.dtb").to_vec();
 
-
         let mut rom = vec![0; 32];
         rom.append(&mut dtb);
         let align = 0x1000;
@@ -167,10 +169,17 @@ impl Rom {
         Err(Exception::StoreAMOAccessFault)
     }
 
+
+
     /// Read a byte from the rom.
     fn read8(&self, addr: u64) -> u64 {
         let index = (addr - MROM_BASE) as usize;
-        self.data[index] as u64
+        let val = self.data[index] as u64;
+        let n = READ_COUNT.fetch_add(1, Ordering::Relaxed);
+        if n < 2000 {
+            eprintln!("R{} addr={:#x} val={:#x}", n, addr, val);
+        }
+        val
     }
 
     /// Read 2 bytes from the rom.
